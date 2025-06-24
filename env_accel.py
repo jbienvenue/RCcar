@@ -4,6 +4,7 @@ import math
 import cmath
 import random
 import pygame
+import torch
 thirty = 30/180*math.pi
 
 def get_arr(*arr):
@@ -13,16 +14,17 @@ class Car(gymnasium.Env):
     def __init__(self, render_mode=None):
         assert render_mode is None or render_mode == 'human', f"Car env dosen't support the {render_mode} rendering"
         self.render_mode = False
+        self.maxSpeed = 20
         self.reset()
         self.render_mode = render_mode == 'human'
-        self.refresh = 0.02
+        self.refresh = 0.08
         self.radius = 50
         self.dist = 120
         self.W1 = self.dist+0j
         self.W2 = -self.dist+0j
         self.eps = 1e+1
         self.epsAngle = 0.1
-        self.observation_space = gymnasium.spaces.Box(low=get_arr(-250, -250, 0, -250, -250), high=get_arr(250, 250, math.pi*2, 250, 250), shape=(5,))
+        self.observation_space = gymnasium.spaces.Box(low=get_arr(-1, -1, -1, -1, -1), high=get_arr(1, 1, 1, 1, 1), shape=(5,))
         self.action_space = gymnasium.spaces.Box(low = get_arr(-1, -1), high=get_arr(1, 1), shape=(2,))
         self.limitStep = 10**3
         if self.render_mode:
@@ -63,15 +65,19 @@ class Car(gymnasium.Env):
             self.c_pt(W1),
             self.c_pt(W2)
         )
-        self.draw_arrow(W1, self.curVel[0], math.pi/2+self.current[1])
-        self.draw_arrow(W2, self.curVel[1], math.pi/2+self.current[1])
+        self.draw_arrow(W1, self.curVel[0]*5, math.pi/2+self.current[1])
+        self.draw_arrow(W2, self.curVel[1]*5, math.pi/2+self.current[1])
         pygame.display.flip()
 
-    
+    def clipVel(self, vel):
+        return max(min(vel, self.maxSpeed), -self.maxSpeed)
+
     def step(self, acc):
         acc1, acc2 = acc
+        comPenality = (acc1**2+acc2**2)*10
         self.curVel[0] += acc1*self.refresh
         self.curVel[1] += acc2*self.refresh
+        self.curVel = list(map(self.clipVel, self.curVel))
         if self.curVel[0] == self.curVel[1]:
             self.current[0] += cmath.exp(self.current[1])*self.curVel[0]*self.refresh
         else:
@@ -87,15 +93,16 @@ class Car(gymnasium.Env):
         dist = abs(self.current[0])
         distA = abs(self.current[1])
         self.counter += 1
-        if dist < self.eps and distA < self.epsAngle:
-            return self.get_obs(), 1, True, False, {}
+        if dist < self.eps:# and distA < self.epsAngle:
+            return self.get_obs(), 1-comPenality, True, False, {}
         if dist > 250 or any(abs(i) > 250 for i in self.curVel) or self.counter > self.limitStep:
             return self.get_obs(), -1000, False, True, {}
         self.render()
-        return self.get_obs(), -(dist+distA*10/(2*math.pi)), False, False, {}
+        #return self.get_obs(), -(dist+distA*10/(2*math.pi)), False, False, {}
+        return self.get_obs(), -dist-comPenality, False, False, {}
 
     def get_obs(self):
-        return get_arr(self.current[0].real, self.current[0].imag, self.current[1], self.curVel[0], self.curVel[1])
+        return get_arr(self.current[0].real/250, self.current[0].imag/250, self.current[1]/math.pi-1, self.curVel[0]/self.maxSpeed, self.curVel[1]/self.maxSpeed)
 
     def reset(self, seed=None):
         if seed is not None:
@@ -124,7 +131,9 @@ if __name__ == '__main__':
 
     env = Car(render_mode='human')
     check_env(env, warn=True)
-    model = PPO("MlpPolicy", env, verbose=1)
+    policy_kwargs = dict(activation_fn=torch.nn.ReLU,
+                     net_arch=dict(pi=[32, 32], vf=[32, 32]))
+    model = PPO("MlpPolicy", env, policy_kwargs=policy_kwargs, verbose=1)
     model.learn(total_timesteps=int(2e5), progress_bar=True)
     model.save('ppo_car.zip')
     mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=100)
@@ -133,7 +142,7 @@ if __name__ == '__main__':
     vec_env = env
     obs = vec_env.reset()
     for i in range(1000):
-        action, _states = model.predict(obs, deterministic=True)
+        action, _states = model.predict(np.array(obs), deterministic=True)
         obs, rewards, done, truncated, info = vec_env.step(action)
         vec_env.render("human")
         if done or truncated:
