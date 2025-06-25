@@ -2,3 +2,4 @@
 *.bgcode
 *.3mf
 *.zip
+logs/*
