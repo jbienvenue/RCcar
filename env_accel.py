@@ -1,12 +1,13 @@
-import gymnasium
-import numpy as np
-import matplotlib.pyplot as plt
-import math
-import cmath
-import random
-import pygame
-import torch
-import sys
+import gymnasium                # for gymnasium.Env
+import numpy as np              # for the arrays (observations/actions)
+import matplotlib.pyplot as plt # to get the plot of the rewards
+import math                     # for math.pi and math.fmod
+import cmath                    # for cmath.exp, and the use of complex numbers to represent the positions
+import random                   # for the reset
+import pygame                   # for the rendering
+import torch                    # for the activations functions
+import sys                      # to get sys.argv
+import time                     # for the logs
 thirty = 30/180*math.pi
 
 def get_arr(*arr):
@@ -20,7 +21,7 @@ class Car(gymnasium.Env):
     refresh = 0.02*7
     eps = 1e+1
     epsAngle = 0.1
-    def __init__(self, render_mode=None):
+    def __init__(self, render_mode=None, id=None):
         self.mimax = self.maxi/2
         assert render_mode is None or render_mode == 'human', f"Car env dosen't support the {render_mode} rendering"
         self.render_mode = False
@@ -34,6 +35,11 @@ class Car(gymnasium.Env):
         if self.render_mode:
             self.init_rendering()
         self.datas = [[], []]
+        if id is not None:
+            self.logfile = f'logs/Car_{id}'
+            with open(self.logfile, 'w') as f:f.write('')
+        else:
+            self.logfile = None
     
     def c_pt(self, c):
         """give a pygame point from complex point"""
@@ -57,7 +63,6 @@ class Car(gymnasium.Env):
         self.misize = self.maxi
         self.screen = pygame.display.set_mode((self.size, self.size))
         self.draw()
-        print("initialised")
 
     def draw(self):
         self.screen.fill('white')
@@ -103,7 +108,8 @@ class Car(gymnasium.Env):
             self.somreward -= 1
             return self.get_obs(), -1, False, True, {}
         #return self.get_obs(), -(dist+distA*10/(2*math.pi)), False, False, {}
-        reward = math.exp(-dist**2/self.mimax**2)#-comPenality
+        #reward = math.exp(-dist**2/self.mimax**2)#-comPenality
+        reward = 1-dist**2/self.maxi**2
         self.lastDist = dist
         self.somreward += reward
         return self.get_obs(), reward, False, False, {}
@@ -117,9 +123,9 @@ class Car(gymnasium.Env):
         self.current = [(random.random()-0.5)*self.maxi+(random.random()-0.5)*self.maxi*1j, random.random()*2*math.pi]
         self.curVel = np.array([0, 0], dtype=np.float64)
         self.lastDist = abs(self.current[0])
-        if hasattr(self, 'somreward'):
-            self.datas[0].append(self.somreward)
-            self.datas[1].append(self.counter)
+        if hasattr(self, 'somreward') and self.logfile is not None:
+            with open(self.logfile, 'a') as f:
+                f.write(f'{self.somreward} {self.counter} {time.time()}\n')
         self.somreward = 0
         self.counter = 0
         if self.render_mode:
@@ -136,6 +142,11 @@ class Car(gymnasium.Env):
     def close(self):
         if self.render_mode:
             pygame.quit()
+
+def make_env(id):
+    def _init():
+        return Monitor(Car(id=id))
+    return _init
 
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == "test":
@@ -154,16 +165,22 @@ if __name__ == '__main__':
         #parEnv = make_vec_env(env, n_envs=2)
         policy_kwargs = dict(activation_fn=torch.nn.Tanh,
                         net_arch=dict(pi=[128, 128], vf=[128, 128]))
-        envs = [Car(render_mode=None) for i in range(4)]
-        vecEnv = SubprocVecEnv([lambda :Monitor(Car()) for e in envs])
+        nb_envs = 6
+        vecEnv = SubprocVecEnv([make_env(id) for id in range(nb_envs)])
         model = PPO("MlpPolicy", vecEnv, policy_kwargs=policy_kwargs, verbose=1, learning_rate=0.03)
         model.learn(total_timesteps=int(2e5), progress_bar=True)
         model.save('ppo_car.zip')
         env = Car(render_mode='human')
         plt.ion()
-        for e in envs:
-            plt.plot(range(len(e.datas[0])), e.datas[0])
-            plt.plot(range(len(e.datas[1])), e.datas[1])
+        dataE = []
+        for i in range(nb_envs):
+            with open(f'logs/Car_{i}') as f:
+                data = f.readlines()
+                data = [tuple(map(float, line.split())) for line in data]
+            dataE.extend(data)
+        dataE.sort(key=lambda l:l[2])
+        plt.plot(range(len(dataE)), [i[0] for i in dataE])
+        plt.plot(range(len(dataE)), [i[1] for i in dataE])
         plt.show(block=True)
     else:
         model = PPO.load(sys.argv[1])
