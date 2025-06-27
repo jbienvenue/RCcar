@@ -8,6 +8,8 @@ import pygame                   # for the rendering
 import torch                    # for the activations functions
 import sys                      # to get sys.argv
 import time                     # for the logs
+import torch.nn as nn, torch    # for the custom policy
+from stable_baselines3.common.policies import ActorCriticPolicy # same
 thirty = 30/180*math.pi
 
 def get_arr(*arr):
@@ -23,15 +25,19 @@ class Car(gymnasium.Env):
     epsAngle = 0.1
     limitStep = 10**4
     stLengthMax = 50
-    def __init__(self, render_mode=None, id=None, every=100):
+    def __init__(self, render_mode=None, id=None, every=100, actions=False):
         self.mimax = self.maxi/2
         assert render_mode is None or render_mode == 'human', f"Car env dosen't support the {render_mode} rendering"
         self.render_mode = False
+        self.acts = []
+        self.obs = []
         self.reset()
         self.render_mode = render_mode == 'human'
+        self.acts = []
+        self.obs = []
         self.W1 = self.dist+0j
         self.W2 = -self.dist+0j
-        self.observation_space = gymnasium.spaces.Box(low=get_arr(-1, -1, -1, -1), high=get_arr(1, 1, 1, 1), shape=(4,))
+        self.observation_space = gymnasium.spaces.Box(low=get_arr(-1, -1, -1, -1, -1), high=get_arr(1, 1, 1, 1, 1), shape=(5,))
         self.action_space = gymnasium.spaces.Box(low = get_arr(-1, -1), high=get_arr(1, 1), shape=(2,))
         if self.render_mode:
             self.init_rendering()
@@ -42,6 +48,7 @@ class Car(gymnasium.Env):
         else:
             self.logfile = None
         self.every = every
+        self.get_action = actions
     
     def c_pt(self, c):
         """give a pygame point from complex point"""
@@ -66,6 +73,21 @@ class Car(gymnasium.Env):
         self.screen = pygame.display.set_mode((self.size, self.size))
         self.draw()
 
+    def plot_acts(self):
+        plt.ion()
+        fig, ax1 = plt.subplots()
+        ax2 = ax1.twinx()
+        for i, traj in enumerate(self.acts):
+            u = (255-i)/255
+            ax2.plot(range(len(traj)), [t[2] for t in self.obs[i]], c=(1-u, 1-u, 1-u))
+            ax1.plot(range(len(traj)), [act[0]-act[1] for act in traj], c=(u, 0, 0))
+            ax1.plot(range(len(traj)), [act[0]+act[1] for act in traj], c=(0, u, 0))
+            ax2.plot(range(len(traj)), [t[0] for t in self.obs[i]], c=(0, 0, u))
+            ax2.plot(range(len(traj)), [t[1] for t in self.obs[i]], c=(0, 0, u))
+            ax2.plot(range(len(traj)), [t[3] for t in self.obs[i]], c=(u, 0, u))
+            ax2.plot(range(len(traj)), [t[4] for t in self.obs[i]], c=(u, 0, u))
+        plt.show(block=True)
+
     def draw(self):
         self.screen.fill('white')
         W1 = self.project(self.current[0], self.current[1], self.dist/2)
@@ -86,14 +108,16 @@ class Car(gymnasium.Env):
         return max(min(vel, self.maxSpeed), -self.maxSpeed)
 
     def get_obs(self):
-        length = abs(self.current[0])
-        return get_arr(length/self.maxi, cmath.log(self.current[0]/length).imag/math.pi, self.curVel[0]/self.maxSpeed, self.curVel[1]/self.maxSpeed)
+        #length = abs(self.current[0])
+        #return get_arr(length/self.maxi, cmath.log(self.current[0]/length).imag/math.pi, self.curVel[0]/self.maxSpeed, self.curVel[1]/self.maxSpeed)
+        return get_arr(self.current[0].real/self.maxi, self.current[0].imag/self.maxi, self.current[1]/math.pi-1, self.curVel[0]/self.maxSpeed, self.curVel[1]/self.maxSpeed)
 
     def step(self, acc):
         #acc1, acc2 = acc
         #comPenality = (acc1**2+acc2**2)*10
-        assert abs(acc).max() <= 1.01
         #acc += np.random.randn(2)/100
+        if self.get_action:
+            self.acts[-1].append(acc)
         self.curVel += acc*self.refresh
         self.curVel = np.array(list(map(self.clipVel, self.curVel)), dtype=np.float64)
         if self.curVel[0] == self.curVel[1]:
@@ -110,22 +134,29 @@ class Car(gymnasium.Env):
         dist = abs(self.current[0])
         distA = abs(self.current[1])
         self.counter += 1
+        final_obs = self.get_obs()
+        if self.get_action:
+            self.obs[-1].append(final_obs)
         if dist < self.eps:# and distA < self.epsAngle:
-            self.somreward += self.limitStep
-            return self.get_obs(), self.limitStep, True, False, {}
-        if dist > self.maxi:
-            self.somreward -= self.limitStep
-            return self.get_obs(), -self.limitStep, False, True, {}
-        if self.counter > self.limitStep:
-            self.somreward -= 2
-            return self.get_obs(), -2, False, True, {}
-        reward = math.exp(-dist**2/self.mimax**2)-1
-        #reward = 1-dist**2/self.maxi**2
-        #reward = math.exp(self.lastDist-dist)-1 if self.lastDist < dist else dist-self.lastDist
-        #reward = -dist**2/self.maxi**2
+            reward, done, trunc = self.limitStep, True, False
+        elif dist > self.maxi:
+            reward, done, trunc = -self.limitStep, False, True
+        elif self.counter > self.limitStep:
+            reward, done, trunc = -2, False, True
+        else:
+            reward = math.exp(-2*dist**2/self.maxi**2)-1
+            #r = 1-dist**2/self.maxi**2
+            #r = math.exp(self.lastDist-dist)-1 if self.lastDist < dist else dist-self.lastDist
+            #r = -dist**2/self.maxi**2
+            if dist < self.dist:
+                reward = math.exp(-(self.dist-dist)**2)
+            else:
+                reward = 0#-(self.dist-dist+1)
+            done, trunc = False, False
+            reward -= 1
         self.lastDist = dist
         self.somreward += reward
-        return self.get_obs(), reward, False, False, {}
+        return final_obs, reward, done, trunc, {}
 
     def reset(self, seed=None):
         if seed is not None:
@@ -144,6 +175,8 @@ class Car(gymnasium.Env):
         self.counter = 0
         if self.render_mode:
             self.draw()
+        self.acts.append([])
+        self.obs.append([])
         return self.get_obs(), {}
     
     def render(self, render_mode='human'):
@@ -162,31 +195,62 @@ def make_env(id):
         return Monitor(Car(id=id))
     return _init
 
+class Policy(ActorCriticPolicy):
+    def __init__(self, *args, **kwargs):
+        super(Policy, self).__init__(*args, **kwargs)
+        self.mlp_extractor.policy_net[-1] = nn.Tanh()
+
+def get_exact_acc(point, angle, dist):
+    cp = complex(*point)
+    length, ap = cmath.polar(cp)
+    a = math.pi-angle+ap
+    l = length/2
+    m = l/math.cos(a)
+    r = l/m
+    if m > 0:
+        d = dist/2
+    else:
+        d = -dist/2
+    acc = np.array([(m+d)*r, (m-d)*r])
+    acc /= abs(acc).max()
+    return acc, length, a
+
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == "exact":
         env = Car(render_mode='human')
         random.seed(42)
-        while True:
+        somreward = 0
+        n = 0
+        good = 0
+        reds = []
+        greens = []
+        for i in range(100):
             start, info = env.reset()
-            length = start[0]*env.maxi
-            l = length/2
-            a = math.fmod(start[1]*math.pi+math.pi, math.pi*2)
-            m = l/math.cos(a)
-            r = l/m
-            acc = np.array([(m+env.dist/2)*r, (m-env.dist/2)*r])
-            acc /= abs(acc).max()
+            acc, length, a = get_exact_acc(start[:2]*env.maxi, start[3]*math.pi, env.dist)
             stacc = acc.copy()
-            print(acc, m, env.current[1], a, env.lastDist, length, r)
+            #print(acc, m, env.current[1], a, env.lastDist, length, r)
             while True:
                 ns, r, done, trunc, info = env.step(acc)
-                env.counter %= 100
                 env.render()
                 
-                assert abs(ns[2]/ns[3]-stacc[0]/stacc[1]) < 0.01, (acc, ns)
-                if max(abs(ns[2:]*env.maxSpeed+acc*env.refresh)) > env.maxSpeed:
+                assert abs(ns[3]/ns[4]-stacc[0]/stacc[1]) < 0.01, (acc, ns)
+                if max(abs(ns[3:]*env.maxSpeed+acc*env.refresh)) > env.maxSpeed:
                     acc = np.array([0, 0], dtype=np.float64)
                 #assert not (done or trunc)
-                if done:break
+                if done or trunc:break
+            somreward += env.somreward
+            n += 1
+            good += env.somreward > 0
+            if env.somreward > 0:
+                greens.append(cmath.rect(length, a))
+            else:
+                reds.append(cmath.rect(length, a))
+        print(f'{somreward} {round(somreward/n, 2)} -> {good}%')
+        A = np.array(greens)
+        B = np.array(reds)
+        plt.scatter(A.real, A.imag, c='green')
+        plt.scatter(B.real, B.imag, c='red')
+        plt.show(block=True)
         sys.exit()
     elif len(sys.argv) > 1 and sys.argv[1] == 'test':
         random.seed(42)
@@ -208,14 +272,14 @@ if __name__ == '__main__':
     from stable_baselines3.common.env_util import make_vec_env
     if len(sys.argv) <= 1:
         #parEnv = make_vec_env(env, n_envs=2)
-        policy_kwargs = dict(activation_fn=torch.nn.Tanh,
+        policy_kwargs = dict(activation_fn=torch.nn.ReLU,
                         net_arch=dict(pi=[16, 16], vf=[16, 16]))
         nb_envs = 6
         vecEnv = SubprocVecEnv([make_env(id) for id in range(nb_envs)])
-        model = PPO("MlpPolicy", vecEnv, policy_kwargs=policy_kwargs, verbose=1, learning_rate=0.003)
+        model = PPO(Policy, vecEnv, policy_kwargs=policy_kwargs, verbose=1, learning_rate=0.003)
         model.learn(total_timesteps=int(2e6), progress_bar=True)
         model.save('ppo_car.zip')
-        env = Car(render_mode='human')
+        env = Car(render_mode='human', actions=True)
         plt.ion()
         dataE = []
         for i in range(nb_envs):
@@ -229,8 +293,10 @@ if __name__ == '__main__':
         plt.show(block=True)
     else:
         model = PPO.load(sys.argv[1])
-        env = Car(render_mode='human')
-    mean_reward, std_reward = evaluate_policy(model, Monitor(env), render=True, n_eval_episodes=100)
+        env = Car(render_mode="human", every=100, actions=True)
+    mean_reward, std_reward = evaluate_policy(model, Monitor(env), render=env.render_mode, n_eval_episodes=100)
+    if(env.get_action):
+        env.plot_acts()
     print(f"{mean_reward}±{std_reward}")
     vec_env = env
     obs, _ = vec_env.reset()
