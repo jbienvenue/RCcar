@@ -65,6 +65,7 @@ class Car(gymnasium.Env):
         pygame.draw.line(self.screen, (255, 0, 0), self.c_pt(pt1), self.c_pt(pt2))
         pygame.draw.line(self.screen, (255, 0, 0), self.c_pt(pt2), self.c_pt(pt3))
         pygame.draw.line(self.screen, (255, 0, 0), self.c_pt(pt2), self.c_pt(pt4))
+        return self.c_pt(pt2)
 
     def init_rendering(self):
         pygame.init()
@@ -100,8 +101,9 @@ class Car(gymnasium.Env):
             self.c_pt(W1),
             self.c_pt(W2)
         )
-        self.draw_arrow(W1, self.curVel[0]*5, math.pi/2+self.current[1])
-        self.draw_arrow(W2, self.curVel[1]*5, math.pi/2+self.current[1])
+        p1 = self.draw_arrow(W1, self.curVel[0]*5, math.pi/2+self.current[1])
+        p2 = self.draw_arrow(W2, self.curVel[1]*5, math.pi/2+self.current[1])
+        pygame.draw.line(self.screen, (0, 255, 0), p1, p2)
         pygame.display.flip()
 
     def clipVel(self, vel):
@@ -259,6 +261,7 @@ if __name__ == '__main__':
         env = Car(render_mode='human', every=100)
         random.seed(42)
         somreward = 0
+        env.limitStep *= 10
         n = 0
         good = 0
         reds = []
