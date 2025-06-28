@@ -10,6 +10,7 @@ import sys                      # to get sys.argv
 import time                     # for the logs
 import torch.nn as nn, torch    # for the custom policy
 from stable_baselines3.common.policies import ActorCriticPolicy # same
+from tqdm import trange
 thirty = 30/180*math.pi
 
 def get_arr(*arr):
@@ -205,7 +206,7 @@ class Policy(ActorCriticPolicy):
 def get_exact_acc(point, angle, dist):
     cp = complex(*point)
     length, ap = cmath.polar(cp)
-    a = math.pi-angle+ap
+    a = angle+ap
     l = length/2
     m = l/math.cos(a)
     r = l/m
@@ -258,15 +259,15 @@ def proved_exact(env):
 
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == "exact":
-        env = Car(render_mode='human', every=100)
+        env = Car(render_mode='human', every=1000)
         random.seed(42)
         somreward = 0
-        env.limitStep *= 10
+        env.limitStep *= 2
         n = 0
         good = 0
         reds = []
         greens = []
-        for i in range(100):
+        for i in trange(1000):
             start, info = env.reset()
             acc, length, a = get_exact_acc(start[:2]*env.maxi, start[3]*math.pi, env.dist)
             stacc = acc.copy()
@@ -333,7 +334,7 @@ if __name__ == '__main__':
     from stable_baselines3 import PPO
     from stable_baselines3.common.evaluation import evaluate_policy
     from stable_baselines3.common.env_checker import check_env
-    from stable_baselines3.common.vec_env import SubprocVecEnv
+    from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
     from stable_baselines3.common.monitor import Monitor
     from stable_baselines3.common.env_util import make_vec_env
     if len(sys.argv) <= 1:
