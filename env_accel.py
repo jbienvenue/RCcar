@@ -207,17 +207,56 @@ def get_exact_acc(point, angle, dist):
     l = length/2
     m = l/math.cos(a)
     r = l/m
-    if m > 0:
-        d = dist/2
-    else:
-        d = -dist/2
-    acc = np.array([(m+d)*r, (m-d)*r])
+    d = dist/2
+    acc = np.array([(m-d)*r, (m+d)*r])
     acc /= abs(acc).max()
     return acc, length, a
 
+class Vector:
+    def __init__(self, x, y=None):
+        if y is None:
+            c = cmath.exp(x*1j)
+            self.x = c.real
+            self.y = c.imag
+        else:
+            self.x = x
+            self.y = y
+    
+    def scalar(self, other):
+        return self.x*other.x+self.y*other.y
+    
+    def __sub__(self, other):
+        return Vector(self.x-other.x, self.y-other.y)
+
+    def __add__(self, other):
+        return Vector(self.x+otherx, self.y+other.y)
+
+def proved_exact(env):
+    state, info = env.reset()
+    A = Vector(0, 0)
+    kw = -0.05
+    ka = -0.01
+    rlength, ra = cmath.polar(complex(*(state[:2]*env.maxi)))
+    while True:
+        V1, V2 = state[-2:]*env.maxSpeed
+        B = Vector(state[0]*env.maxi, state[1]*env.maxi)
+        angle = state[2]*math.pi
+        d = (B-A).scalar(Vector(angle+math.pi/2))
+        length, ap = cmath.polar(complex(*(state[:2]*env.maxi)))
+        psi = math.fmod(math.pi-angle+ap, math.pi*2)-math.pi
+        v1 = -(kw*psi+ka*d)
+        v2 =  (kw*psi-ka*d)
+        acc = get_arr(v1-V1, v2-V2)/env.refresh
+        print(v1, v2, V1, V2, acc)
+        state, reward, done, trunc, info = env.step(acc)
+        env.render()
+        if done or trunc:
+            break
+    return env.somreward, rlength, ra
+
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == "exact":
-        env = Car(render_mode='human')
+        env = Car(render_mode='human', every=100)
         random.seed(42)
         somreward = 0
         n = 0
@@ -246,6 +285,30 @@ if __name__ == '__main__':
             else:
                 reds.append(cmath.rect(length, a))
         print(f'{somreward} {round(somreward/n, 2)} -> {good}%')
+        A = np.array(greens)
+        B = np.array(reds)
+        plt.scatter(A.real, A.imag, c='green')
+        plt.scatter(B.real, B.imag, c='red')
+        plt.show(block=True)
+        sys.exit()
+    elif len(sys.argv) > 1 and sys.argv[1] == 'exact2':
+        reds = []
+        greens = []
+        env = Car(render_mode='human')
+        somreward = 0
+        n = 0
+        random.seed(42)
+        goods = 0
+        for i in range(100):
+            sr, length, a = proved_exact(env)
+            goods += sr > 0
+            somreward += sr
+            n += 1
+            if sr > 0:
+                greens.append(cmath.rect(length, a))
+            else:
+                reds.append(cmath.rect(length, a))
+        print(f'{somreward} {round(somreward/n, 2)} -> {goods}%')
         A = np.array(greens)
         B = np.array(reds)
         plt.scatter(A.real, A.imag, c='green')
