@@ -344,8 +344,11 @@ if __name__ == '__main__':
         policy_kwargs = dict(activation_fn=torch.nn.ReLU,
                         net_arch=dict(pi=[16, 16], vf=[16, 16]))
         nb_envs = 6
-        vecEnv = SubprocVecEnv([make_env(id) for id in range(nb_envs)])
-        model = PPO(Policy, vecEnv, policy_kwargs=policy_kwargs, verbose=1, learning_rate=0.003)
+        if nb_envs == 1:
+            vecEnv = DummyVecEnv([make_env(0)])
+        else:
+            vecEnv = SubprocVecEnv([make_env(id) for id in range(nb_envs)])
+        model = PPO(Policy, vecEnv, policy_kwargs=policy_kwargs, verbose=1, learning_rate=0.003, device='cpu')
         model.learn(total_timesteps=int(2e6), progress_bar=True)
         model.save('ppo_car.zip')
         env = Car(render_mode='human', actions=True)
