@@ -90,7 +90,7 @@ class Car(gymnasium.Env):
             ax2.plot(range(len(traj)), [t[4] for t in self.obs[i]], c=(u, 0, u))
         plt.show(block=True)
 
-    def draw(self):
+    def draw(self, expected=None):
         self.screen.fill('white')
         W1 = self.project(self.current[0], self.current[1], self.dist/2)
         W2 = self.project(self.current[0], self.current[1], -self.dist/2)
@@ -105,6 +105,8 @@ class Car(gymnasium.Env):
         p1 = self.draw_arrow(W1, self.curVel[0]*5, math.pi/2+self.current[1])
         p2 = self.draw_arrow(W2, self.curVel[1]*5, math.pi/2+self.current[1])
         pygame.draw.line(self.screen, (0, 255, 0), p1, p2)
+        if expected is not None:
+            pygame.draw.circle(self.screen, (255, 0, 0), expected, 5)
         pygame.display.flip()
 
     def clipVel(self, vel):
@@ -182,12 +184,12 @@ class Car(gymnasium.Env):
         self.obs.append([])
         return self.get_obs(), {}
     
-    def render(self, render_mode='human'):
+    def render(self, render_mode='human', expected=None):
         if isinstance(render_mode, str):
             render_mode = render_mode == 'human'
         assert render_mode is self.render_mode
         if self.render_mode and self.counter%self.every == self.every-1:
-            self.draw()
+            self.draw(expected)
 
     def close(self):
         if self.render_mode:
@@ -203,17 +205,18 @@ class Policy(ActorCriticPolicy):
         super(Policy, self).__init__(*args, **kwargs)
         self.mlp_extractor.policy_net[-1] = nn.Tanh()
 
-def get_exact_acc(point, angle, dist):
+def get_exact_acc(point, angle, dist, env):
     cp = complex(*point)
     length, ap = cmath.polar(cp)
-    a = angle+ap
+    a = math.fmod(math.pi-angle+ap, math.pi*2)
     l = length/2
     m = l/math.cos(a)
     r = l/m
     d = dist/2
     acc = np.array([(m-d)*r, (m+d)*r])
     acc /= abs(acc).max()
-    return acc, length, a
+    if a > math.pi:acc = -acc
+    return acc, length, a, env.c_pt(cp+cmath.exp(complex(0, angle))*m)
 
 class Vector:
     def __init__(self, x, y=None):
@@ -259,7 +262,7 @@ def proved_exact(env):
 
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == "exact":
-        env = Car(render_mode='human', every=1000)
+        env = Car(render_mode='human', every=100)
         random.seed(42)
         somreward = 0
         env.limitStep *= 2
@@ -269,13 +272,12 @@ if __name__ == '__main__':
         greens = []
         for i in trange(1000):
             start, info = env.reset()
-            acc, length, a = get_exact_acc(start[:2]*env.maxi, start[3]*math.pi, env.dist)
+            acc, length, a, center = get_exact_acc(start[:2]*env.maxi, (start[2]+1)*math.pi, env.dist, env)
             stacc = acc.copy()
             #print(acc, m, env.current[1], a, env.lastDist, length, r)
             while True:
                 ns, r, done, trunc, info = env.step(acc)
-                env.render()
-                
+                env.render(expected=center)
                 assert abs(ns[3]/ns[4]-stacc[0]/stacc[1]) < 0.01, (acc, ns)
                 if max(abs(ns[3:]*env.maxSpeed+acc*env.refresh)) > env.maxSpeed:
                     acc = np.array([0, 0], dtype=np.float64)
