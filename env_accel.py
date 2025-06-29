@@ -168,7 +168,7 @@ class Car(gymnasium.Env):
             random.seed(seed)
         rA = random.random()*2*math.pi
         while True:
-            L = (random.random()-0.5)*2*self.stLengthMax
+            L = math.sqrt(random.random())*self.stLengthMax
             if L > self.eps:break
         self.current = [self.project(0j, rA, L), random.random()*2*math.pi]
         self.curVel = np.array([0, 0], dtype=np.float64)
@@ -263,7 +263,7 @@ def proved_exact(env):
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == "exact":
         env = Car(render_mode='human', every=100)
-        random.seed(42)
+        env.stLengthMax = 125
         somreward = 0
         env.limitStep *= 2
         n = 0
