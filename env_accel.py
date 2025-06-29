@@ -92,6 +92,7 @@ class Car(gymnasium.Env):
 
     def draw(self, expected=None):
         self.screen.fill('white')
+        pygame.event.get()
         W1 = self.project(self.current[0], self.current[1], self.dist/2)
         W2 = self.project(self.current[0], self.current[1], -self.dist/2)
         pygame.draw.circle(self.screen, (0, 0, 0), (self.misize, self.misize), self.eps)
