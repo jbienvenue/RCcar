@@ -208,7 +208,7 @@ class Policy(ActorCriticPolicy):
 def get_exact_acc(point, angle, dist, env):
     cp = complex(*point)
     length, ap = cmath.polar(cp)
-    a = math.fmod(math.pi-angle+ap, math.pi*2)
+    a = math.fmod(math.pi-angle+ap+math.pi*2, math.pi*2)
     l = length/2
     m = l/math.cos(a)
     r = l/m
@@ -290,7 +290,7 @@ if __name__ == '__main__':
                 greens.append(cmath.rect(length, a))
             else:
                 reds.append(cmath.rect(length, a))
-        print(f'{somreward} {round(somreward/n, 2)} -> {good}%')
+        print(f'{somreward} {round(somreward/n, 2)} -> {good*100/n}%')
         A = np.array(greens)
         B = np.array(reds)
         plt.scatter(A.real, A.imag, c='green')
